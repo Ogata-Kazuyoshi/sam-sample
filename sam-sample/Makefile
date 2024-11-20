@@ -4,4 +4,4 @@ sam-local:
 
 sam-deploy:
 	sam build
-	sam deploy --no-confirm-changeset --no-fail-on-empty-changeset
+	sam deploy --no-confirm-changeset --no-fail-on-empty-changeset --parameter-overrides DIGIp=$(DIG_IP)

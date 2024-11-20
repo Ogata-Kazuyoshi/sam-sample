@@ -4,15 +4,47 @@ Description: >
   sam-sample
 
   Sample SAM Template for sam-sample
-  
-# More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
+
+Parameters:
+  DIGIp:
+    Type: String
+    Default: ''
+
+
 Globals:
   Function:
     Timeout: 3
+  Api:
+    Cors:
+      AllowMethods: "'GET'"
+      AllowHeaders: "'Content-Type'"
+      AllowOrigin: "'*'"
 
 Resources:
+  ApiGatewayApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: DEV
+      Auth:
+        ResourcePolicy:
+          CustomStatements:
+            - Effect: Allow
+              Principal: '*'
+              Action: execute-api:Invoke
+              Resource: execute-api:/*
+              Condition:
+                IpAddress:
+                  aws:SourceIp: !Ref DIGIp
+            - Effect: Deny
+              Principal: '*'
+              Action: execute-api:Invoke
+              Resource: execute-api:/*
+              Condition:
+                NotIpAddress:
+                  aws:SourceIp: !Ref DIGIp
+
   HelloWorldFunction:
-    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Type: AWS::Serverless::Function
     Properties:
       CodeUri: hello-world/
       Handler: app.lambdaHandler
@@ -21,11 +53,12 @@ Resources:
         - x86_64
       Events:
         HelloWorld:
-          Type: Api # More info about API Event Source: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#api
+          Type: Api
           Properties:
             Path: /hello
             Method: get
-    Metadata: # Manage esbuild properties
+            RestApiId: !Ref ApiGatewayApi
+    Metadata:
       BuildMethod: esbuild
       BuildProperties:
         Minify: true

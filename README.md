@@ -6,8 +6,6 @@
 
 - [samのセットアップ、ローカル確認](#samのセットアップ、ローカル確認)
 - [コマンドラインからDeploy＆UPDATE](#コマンドラインからDeploy＆UPDATE)
-- [作成したリソースの削除](#作成したリソースの削除)
-- [githubActionsからのdeploy(これだけで十分)](#githubActionsからのdeploy(これだけで十分))
 - [備考](#備考)
 - [参考](#参考)
 </details>
@@ -59,8 +57,7 @@ sam init --runtime nodejs18.x
 - 今回は make sam-localでビルドとスタートの両方を実施するMakefileを準備した
 
 ```zh
-sam build
-sam local start-api
+make sam-local
 ```
 
 </details>
@@ -68,7 +65,72 @@ sam local start-api
 # コマンドラインからDeploy＆UPDATE
 
 <details>
-<summary> 0. 認証情報を登録</summary>
+<summary> 0. template.yamlでAPIGatewayのIP制限を設定</summary>
+
+- defaultではIP制限が入っていないため、必ずIP制限をしてからデプロイすること
+- 下記の設定が、defaultのtemplate.yamlに対して追加が必要
+- 環境変数に指定のIPが必要
+
+```zh
+DIG_IP=
+```
+
+```template.yaml
+Parameters:
+  DIGIp:
+    Type: String
+    Default: ''
+
+
+Globals:
+  Function:
+    Timeout: 3
+  Api:
+    Cors:
+      AllowMethods: "'GET'"
+      AllowHeaders: "'Content-Type'"
+      AllowOrigin: "'*'"
+
+Resources:
+  ApiGatewayApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: DEV
+      Auth:
+        ResourcePolicy:
+          CustomStatements:
+            - Effect: Allow
+              Principal: '*'
+              Action: execute-api:Invoke
+              Resource: execute-api:/*
+              Condition:
+                IpAddress:
+                  aws:SourceIp: !Ref DIGIp
+            - Effect: Deny
+              Principal: '*'
+              Action: execute-api:Invoke
+              Resource: execute-api:/*
+              Condition:
+                NotIpAddress:
+                  aws:SourceIp: !Ref DIGIp
+
+  HelloWorldFunction:
+    ......(そのまま)
+      Events:
+        HelloWorld:
+          Type: Api
+          Properties:
+            Path: /hello
+            Method: get
+            RestApiId: !Ref ApiGatewayApi
+    Metadata:
+      BuildMethod: esbuild
+      ......(あとはそのまま)
+```
+</details>
+
+<details>
+<summary> 1. AWSConfigの設定</summary>
 
 - ToroHandsOnのtemporaryのアクセスキーをターミナルの環境変数に設定
 - リージョンを東京に設定
@@ -77,127 +139,24 @@ sam local start-api
 ```zh
 export AWS_DEFAULT_REGION=ap-northeast-1
 ```
-
-```
-# More information about the configuration file can be found here:
-# https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/serverless-sam-cli-config.html
-version = 0.1
-
-[default]
-[default.global.parameters]
-stack_name = "temp-ogata-sam"
-
-[default.build.parameters]
-cached = true
-parallel = true
-
-[default.validate.parameters]
-lint = true
-
-[default.deploy.parameters]
-capabilities = "CAPABILITY_IAM"
-confirm_changeset = true
-resolve_s3 = true
-stack_name = "temp-ogata-sam"
-s3_prefix = "temp-ogata-sam"
-region = "ap-northeast-1"
-disable_rollback = true
-image_repositories = []
-force_upload = true
-
-[default.package.parameters]
-resolve_s3 = true
-
-[default.sync.parameters]
-watch = true
-
-[default.local_start_api.parameters]
-warm_containers = "EAGER"
-
-[default.local_start_lambda.parameters]
-warm_containers = "EAGER"
-
-```
-
-</details>
-
-<details>
-<summary> 1. 下記コマンドを実行</summary>
-
-
-```zh
-sam build
-sam deploy --no-confirm-changeset --no-fail-on-empty-changeset
-```
-
 </details>
 
 <details>
 <summary> 2. make sam-deployでデプロイ</summary>
 
-- 下記を実施しても、APIGatewayのエンドポイントは変わらないので、実質Updateできる
-- 最初に、samconfig.tomlの「stack_name, s3_prefix, region」など対話中に聞かれる値を設定しておく
-- 後は下記のデプロイコマンドを実行。今回は make sam-deployでまとめて実行できるようにしている
+- 下記を実施しても、APIGatewayのエンドポイントは変わらないので、Updateとしても使える（差分検知してリソース変更）
 
 
 ```zh
-sam build
-sam deploy --no-confirm-changeset --no-fail-on-empty-changeset
+make sam-deploy
 ```
 
 </details>
-
-# 作成したリソースの削除
-
-<details>
-<summary> 1. 下記コマンドで削除</summary>
-
-
-```zh
-sam delete --stack-name <スタックネーム>
-```
-
-</details>
-
-# githubActionsからのdeploy(これだけで十分)
-
-
-<details>
-<summary> 1. ルートディレクトリーで必要なIAMロールの作成</summary>
-
-- GithubActionsで認可後に渡すAssumeロール、ラムダ関数にアタッチするロールを事前に作成
-- 「1.AWS_DEFAULT_REGION, 2.GITHUB_ACCOUNT, 3.GITHUB_REPOSITORY」と、IAMアクセスキーをexportして環境変数に設定
-- make iac-role-deployでデプロイする
-
-```zh
-make iac-role-deploy
-```
-
-</details>
-
-<details>
-<summary> 2. githubActionsに必要な環境変数を設定</summary>
-
-- 添付の３つの環境変数を設定する
-
-![](./assets/images/githubactions1.png)
-
-</details>
-
-<details>
-<summary> 3. githubへPush</summary>
-
-- github-ci.ymlに必要事項がかけたらPush
-- 今回はS3バケット名は環境変数で指定＆毎回クリーンナップするようにした（無限にUPDATE毎に増えていくので）
-
-</details>
-
-
-
 
 # 備考
 [samの記事1](https://zenn.dev/toccasystems/articles/aws-sam-setup?redirected=1)
+</br>
+[samの記事2](https://qiita.com/hf7777hi/items/6d2b093d6ed7271cf81b)
 
-# 参考
 
 
